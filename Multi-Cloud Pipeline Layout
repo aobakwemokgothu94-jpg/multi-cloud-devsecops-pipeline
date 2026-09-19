@@ -1,0 +1,4 @@
+multi-cloud-devsecops-pipeline/
+├── README.md
+├── main.tf           <-- Hardened network blueprints
+└── variables.tf      <-- Deployment parameters
