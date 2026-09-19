@@ -1,0 +1,73 @@
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
+  }
+}
+
+provider "azurerm" {
+  features {}
+}
+
+# 1. Secure Resource Group Boundary
+resource "azurerm_resource_group" "network_rg" {
+  name     = var.resource_group_name
+  location = var.location
+}
+
+# 2. Isolated Virtual Network (VNet)
+resource "azurerm_virtual_network" "prod_vnet" {
+  name                = "vnet-prod-core"
+  location            = azurerm_resource_group.network_rg.location
+  resource_group_name = azurerm_resource_group.network_rg.name
+  address_space       = var.vnet_cidr
+}
+
+# 3. Hardened Subnet Configuration
+resource "azurerm_subnet" "frontend_subnet" {
+  name                 = "snet-prod-frontend"
+  resource_group_name  = azurerm_resource_group.network_rg.name
+  virtual_network_name = azurerm_virtual_network.prod_vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+# 4. Strict Network Security Group (NSG) - Default Deny All
+resource "azurerm_network_security_group" "hardened_nsg" {
+  name                = "nsg-prod-secure-baseline"
+  location            = azurerm_resource_group.network_rg.location
+  resource_group_name = azurerm_resource_group.network_rg.name
+
+  # Security Control: Deny all unauthenticated public SSH access (Port 22 Mitigation)
+  security_rule {
+    name                       = "Block_Public_SSH"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Deny"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "0.0.0.0/0"
+    destination_address_prefix = "*"
+  }
+
+  # Security Control: Explicitly allow secure web endpoint communications
+  security_rule {
+    name                       = "Allow_Secure_HTTPS"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+}
+
+# 5. Bind NSG directly to the Frontend Subnet
+resource "azurerm_subnet_network_security_group_association" "nsg_assoc" {
+  subnet_id                 = azurerm_subnet.frontend_subnet.id
+  network_security_group_id = azurerm_network_security_group.hardened_nsg.id
+}
